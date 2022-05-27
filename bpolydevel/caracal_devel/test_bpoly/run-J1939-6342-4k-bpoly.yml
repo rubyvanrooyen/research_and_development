@@ -1,0 +1,158 @@
+## this is only for devel since wb data is smaller than nb data
+# bpoly is not a good solution for wideband data
+
+schema_version: 1.0.4
+
+
+## Generate MS for calibration
+general:
+  prefix: J1939
+  title: J1939
+  msdir: msdir
+  rawdatadir: ms-orig
+  output: output-fcal-4k-bpoly
+
+getdata:
+  dataid: [1625501775_sdp_l0]
+  extension: ms
+
+obsconf:
+  refant: auto
+#   refant: m022,m023,m024
+
+
+## Processing calibrators
+transform__calibrators:
+  enable: true
+  label_out: &cal_label cal
+# Odd even though docs says this is possible, execution says
+# Enum 'fcal' does not exist. Path: '/prep/field' Enum: ['target', 'calibrators']
+#   field: &calibrators fcal
+  field: &calibrators calibrators
+  split_field:
+    enable: true
+    col: data
+prep__calibrators:
+  enable: true
+  label_in: *cal_label
+  field: *calibrators
+  fixuvw:
+    enable: true
+  clearcal: true
+  specweights:
+    enable: true
+    mode: uniform
+
+flag__calibrators:
+  enable: true
+  label_in: *cal_label
+  field: *calibrators
+  flag_autocorr:
+    enable: true
+  flag_shadow:
+    enable: true
+  flag_spw:
+    enable: true
+    # flagging out RFI channels from TM memo
+    chans: '*:856MHz~960MHz,*:1080MHz~1095MHz,*:1166MHz~1300MHz,*:1375MHz~1387MHz,*:1419.8MHz~1421.3MHz,*:1526MHz~1554MHz,*:1565MHz~1585MHz,*:1592MHz~1610MHz,*:1616MHz~1626MHz,*:1658MHz~1800MHz'
+    ensure_valid: false
+  flag_mask:
+    enable: true
+    mask: meerkat.rfimask.npy
+    uvrange: '0~1000'
+flag__cal_manual:
+  enable: true
+  label_in: *cal_label
+  field: *calibrators
+  flag_spw:
+    enable: true
+    chans: '*:0.965290GHz~0.965930GHz,*:1.05161GHz~1.05245GHz,*:1.1026GHz~1.10344GHz,*:1.10887GHz~1.11598GHz,*:1.12768GHz~1.12831GHz,*:1.13583GHz~1.13834GHz,*:1.1421GHz~1.16595GHz,*:1.1862GHz~1.3045GHz,*:1.48964GHz~1.49298GHz,*:1.52057GHz~1.59195GHz,*:1.51827GHz,*:1.62632GHz'
+    ensure_valid: false
+  flag_time:
+    enable: true
+    timerange: '2021/07/05/16:17:30~2021/07/05/16:19:30,2021/07/05/16:27:00~2021/07/05/16:27:15'
+    ensure_valid: false
+  flag_antennas:
+    enable: true
+    antennas: 'm054'
+    ensure_valid: false
+flag__cal_rfi:
+  enable: true
+  label_in: *cal_label
+  field: *calibrators
+  flag_rfi:
+    enable: true
+    flagger: tricolour
+    tricolour:
+      strategy: khruschev.yaml
+
+crosscal__devel:
+  enable: true
+  label_in: *cal_label
+  label_cal: 1gc
+  uvrange: '>150'
+  set_model:
+    enable: true
+    # error in 1934 model for this caracal installation, using meqtree model
+    meerkat_skymodel: true
+  primary:
+#     reuse_existing_gains: False
+    reuse_existing_gains: true
+    order: KGBAKGB
+    combine: ["scan,field", "spw", "scan,field", null, "", "", "scan"]
+    solint: [inf, inf, inf, null, int, int, inf]
+    calmode: [ap, ap, ap, null, ap, ap, ap]
+    b_fillgaps: 70
+    b_smoothwindow: 32
+    plotgains: true
+  secondary:
+    reuse_existing_gains: true
+    order: KGAKF
+    apply: B
+    combine: ["scan,field", "spw", null, "", ""]
+    solint: [inf, inf, null, 60s, 60s]
+    calmode: [ap, ap, null, ap, ap]
+    plotgains: true
+  apply_cal:
+    applyto:
+      - fcal
+      - gcal
+
+crosscal__bpoly:
+  enable: true
+  label_in: *cal_label
+  label_cal: 1gc
+  uvrange: '>150'
+  set_model:
+    enable: true
+    # error in 1934 model for this caracal installation, using meqtree model
+    meerkat_skymodel: true
+  primary:
+#     reuse_existing_gains: false
+    reuse_existing_gains: true
+    order: KGPAKGP
+    combine: ["scan,field", "spw", "scan,field", null, "", "", "scan"]
+    solint: [inf, inf, inf, null, int, int, inf]
+#     solint: [inf, inf, inf, null, inf, inf, inf]
+    calmode: [ap, ap, ap, null, ap, ap, ap]
+#     degamp: 50
+#     degphase: 20
+    degamp: 9
+    degphase: 11
+    visnorm: False
+    b_fillgaps: 70
+    plotgains: false
+  secondary:
+    reuse_existing_gains: true
+    order: KGAKF
+    apply: P
+    combine: ["scan,field", "spw", null, "", ""]
+    solint: [inf, inf, null, 60s, 60s]
+    calmode: [ap, ap, null, ap, ap]
+    plotgains: true
+  apply_cal:
+    applyto:
+      - fcal
+      - gcal
+
+# -fin-

@@ -1,0 +1,216 @@
+schema_version: 1.0.4
+
+
+## Generate MS for calibration
+general:
+  prefix: G330
+  title: G330
+  msdir: msdir-bpoly
+  rawdatadir: ms-orig
+  output: output-g330-32k-bpoly
+
+getdata:
+  dataid: [1625501782_sdp_l0]
+  extension: ms
+
+obsconf:
+  refant: auto
+#   refant: m022,m023,m024
+
+
+## Processing calibrators
+transform__calibrators:
+  enable: true
+  label_out: cal
+  field: calibrators
+  split_field:
+    enable: true
+    chan_avg: 8
+    col: data
+
+prep__calibrators:
+  enable: true
+  label_in: cal
+  field: calibrators
+  fixuvw:
+    enable: true
+  clearcal: true
+  specweights:
+    enable: true
+    mode: uniform
+
+flag__calibrators:
+  enable: true
+  label_in: cal
+  field: calibrators
+  flag_autocorr:
+    enable: true
+  flag_shadow:
+    enable: true
+  flag_spw:
+    enable: true
+    # for narrow band only flag out the band edges
+    # these modes will prob be used for spectral lines, and flagged manually
+    chans: '*:1630MHz~1657MHz,*:1673MHz~1700MHz'
+    ensure_valid: false
+
+flag__cal_manual:
+  enable: true
+  label_in: cal
+  field: calibrators
+  # time and antenna flags from WB processing is carried over
+  # freq/ channel based flagging are done independently after inspecting the NB data
+  flag_time:
+    enable: true
+    timerange: '2021/07/05/16:17:30~2021/07/05/16:19:50,2021/07/05/16:26:45~2021/07/05/16:27:15'
+    ensure_valid: false
+  flag_antennas:
+    enable: true
+    antennas: 'm054'
+    ensure_valid: false
+
+crosscal:
+  enable: true
+  label_in: cal
+  label_cal: 1gc
+  uvrange: '>150'
+  set_model:
+    enable: true
+    # error in 1934 model for this caracal installation, using meqtree model
+    meerkat_skymodel: true
+  primary:
+    reuse_existing_gains: true
+    order: KGPAKGP
+    combine: ["scan", "spw", "scan,spw", null, "", "", "scan,spw"]
+    solint: [inf, inf, inf, null, int, int, inf]
+    calmode: [ap, ap, ap, null, ap, ap, ap]
+    b_fillgaps: 70
+    degamp: 1
+    degphase: 2
+    visnorm: false
+    plotgains: false
+  # the default rime is 'KGB', so if you are using the 'P' option
+  # you need to specify it for all the calibrators, else the pipeline
+  # will attempt to run 'B' which will cause and error, because it does not exist
+  secondary:
+    reuse_existing_gains: true
+    order: KGAKF
+    apply: P
+    combine: ["scan", "spw", null, "", ""]
+    solint: [inf, inf, null, 60s, 60s]
+    calmode: [ap, ap, null, ap, ap]
+    plotgains: false
+  apply_cal:
+    applyto:
+      - fcal
+      - gcal
+
+# Apply calibration to target
+transform__target:
+  enable: true
+  label_out: corr
+  field: target
+  split_field:
+    enable: true
+    otfcal:
+      enable: true
+      label_cal: 1gc
+      interpolation:
+        delay_cal: nearest
+        bp_cal: nearest
+        gain_cal: linear
+
+prep__target:
+  enable: true
+  label_in: corr
+  field: target
+  fixuvw:
+    enable: true
+  clearcal: true
+  specweights:
+    enable: true
+    mode: uniform
+
+flag__target:
+  enable: true
+  label_in: corr
+  field: target
+  flag_autocorr:
+    enable: true
+  flag_shadow:
+    enable: true
+  flag_spw:
+    enable: true
+    # for narrow band only flag out the band edges
+#     chans: '*:1630MHz~1655MHz,*:1675MHz~1700MHz'
+    chans: '*:1630MHz~1657MHz,*:1673MHz~1700MHz'
+    ensure_valid: false
+
+flag__tgt_manual:
+  enable: true
+  label_in: corr
+  field: target
+  flag_antennas:
+    enable: true
+    antennas: 'm054'
+    ensure_valid: false
+
+# mask:
+#   enable: false
+
+# # selfcal:
+# #   enable: true
+# #   label: corr
+# #   ncpu: 40
+# #   img_npix: 3600
+# #   img_cell: 2
+# #   img_niter: 1000000
+# #   img_nchans: 12
+# #   cal_niter: 4
+# #   image:
+# #     enable: true
+# #     auto_mask: [20,15,10,5,5]
+# #     auto_threshold: [0.5,0.5,0.5,0.3,0.3]
+# #   calibrate:
+# #     enable: true
+# #     model: ['1','2','3','4']
+# #     gain_matrix_type: ['GainDiagPhase', 'GainDiagPhase', 'GainDiagPhase', 'GainDiag']
+# #     gsols_chan: ['0', '0', '0', '100']
+# #     gsols_timeslots: ['120', '120', '60', '60']
+# #     shared_memory: 250GB
+# #   transfer_apply_gains:
+# #     enable: true
+# #     transfer_to_label: corr
+# #   transfer_model:
+# #     enable: true
+# #     num_workers: 40
+# #     memory_fraction: 0.45
+# #     transfer_to_label: corr
+# #
+# # image_line:
+# #   enable: true
+# #   label: 'l'
+# #   restfreq: '1.420405752GHz'
+# #   subtractmodelcol:
+# #     enable: true
+# #   make_cube:
+# #     enable: true
+# #     npix: [1800]
+# #     cell: 3
+# #     taper: 10
+# #     robust: 0
+# #   mstransform: 
+# #     enable: true
+# #     telescope: meerkat
+# #     fitorder: 1
+# # #    fitspw: '*:1300~1417.2MHz,*:1421.0~1600MHz'
+# #   pb_cube:
+# #     enable: true
+# #   freq_to_vel:
+# #     enable: false
+# #   remove_stokes_axis:
+# #     enable: true
+# #   sofia:
+# #     enable: true
+
+# -fin-

@@ -1,0 +1,3 @@
+caltable="G330-1625501782_sdp_l0-1gc_primary.P1" calwt=False tinterp='linear' finterp='linear' fldmap='J1939-6342' field='G330.89-0.36' spwmap=0
+caltable="G330-1625501782_sdp_l0-1gc_secondary.K1" calwt=False tinterp='nearest' finterp='linear' fldmap='J1726-5529' field='G330.89-0.36' spwmap=0
+caltable="G330-1625501782_sdp_l0-1gc_secondary.F0" calwt=False tinterp='linear' finterp='linear' fldmap='J1726-5529' field='G330.89-0.36' spwmap=0

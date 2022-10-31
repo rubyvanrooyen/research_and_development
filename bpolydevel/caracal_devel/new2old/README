@@ -1,0 +1,9 @@
+Plot bandpass solution from CARACAL bpoly table *.P?   
+`bpoly_tbl.py`
+
+Create an empty B cal table from an existing CASA table
+`make_bcal_template.py <table_name.B>`
+
+Construct a B cal table from a CARACal bpoly table
+`bpolytob.py <table_name.P> <template_name.B>`
+

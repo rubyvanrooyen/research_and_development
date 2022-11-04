@@ -306,7 +306,6 @@ def map_main_tbl(
     spw_id = readcolumn(bpolytable+"/CAL_DESC", bp_field="SPECTRAL_WINDOW_ID")
     main_tbl_dict["SPECTRAL_WINDOW_ID"] = np.array(nrows*[int(spw_id)], dtype=np.int32)
 
-
     # 2 x nchans x nrows [complex] 
     main_tbl_dict["CPARAM"] = bpolyfit(bpolytable, freq_range)
 
@@ -366,6 +365,7 @@ def Bpoly2B(bpolytable, template_btable):
                     "SNR",
                     "WEIGHT",
                     ]
+
     tb.open(btable, nomodify=False)
     # force to release all locks
     tb.clearlocks()

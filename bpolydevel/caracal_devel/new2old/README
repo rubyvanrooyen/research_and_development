@@ -11,4 +11,9 @@ Create an empty B cal table from an existing CASA table
 Construct a B cal table from a CARACal bpoly table
 `run bpolytob.py <table_name.P> <template_name.B>`
 
+```
+browsetable("3C39_comet-1627186165_sdp_l0-1gc_primary.B1")
+plotms(vis="3C39_comet-1627186165_sdp_l0-1gc_primary.B1", xaxis='freq', yaxis='amp', coloraxis='baseline')
+```
+
 -fin-

@@ -6,8 +6,9 @@ Plot bandpass solution from CARACAL bpoly table *.P?
 `run bpoly_tbl.py`
 
 Create an empty B cal table from an existing CASA table
-`run make_bcal_template.py <table_name.B>`
+`run make_empty_bcal_table.py <table_name.B>`
 
 Construct a B cal table from a CARACal bpoly table
 `run bpolytob.py <table_name.P> <template_name.B>`
 
+-fin-

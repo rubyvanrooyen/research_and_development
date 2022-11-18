@@ -1,5 +1,5 @@
 """
-Temporary patch to construct CASA Btable structure from BPOLYtable structure
+Display bandpass solution by calculating the chebyshev polynomial from BPOLY coefficients
 """
 
 import os

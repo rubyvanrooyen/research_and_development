@@ -1,64 +1,54 @@
 """
-This is a prototype to see if you can map the BPOLY table to Bcal table in CASA
+This is a temporary hack to map the BPOLY table to Bcal table in CASA
 It copies an existing table and update the values
-
-
-The next step will be to contruct a table that works
 """
 
-import os, sys
-
-from tasks import *
-from taskinit import *
-import casa
+import caracal
+import os
+import sys
 
 import numpy as np
+
+from casacore.tables import table
 
 
 def metaref(bpolytable):
     """
     Extract info from reference Measurement Set
 
-    @param bpolytable string : CARACal table name (*.P?)
+    @param bpolytable string : CARACal BPOLY table name
 
-    @return msfile string    : Name of reference MS file
-    @return nrows int        : Nr of rows in Bcal table
-    @return Xpol_idx int     : Index of XX pol correlator data
-    @return Ypol_idx int     : Index of YY pol correlator data
-    @return freq_range Array : Observation Frequency range [Hz]
+    @return msfile string      : Name of reference MS file
+    @return nrows int          : Nr of rows in Bcal table
+    @return Xpol_idx int       : Index of XX pol correlator data
+    @return Ypol_idx int       : Index of YY pol correlator data
+    @return freq_range ndarray : Observation Frequency range [Hz]
     """
 
     # get nr of rows for new table
-    tb.open(bpolytable)
-    nrows = tb.nrows()
-    tb.close()
+    nrows = table(bpolytable, ack=False).nrows()
 
     # get the ms file you're gonna need it
-    tb.open(bpolytable+"/CAL_DESC")
-    msfile=tb.getcol('MS_NAME')[0]
-    tb.close()
+    msfile= table(bpolytable+"::CAL_DESC", ack=False).getcol('MS_NAME')[0]
 
     # Data: Complex value for each of 4 correlations per spectral channel
     # IDs correspond to values RR (5), RL (6), LR (7), LL (8), XX (9), XY (10), YX (11), and YY (12)
     corr_prods_id = {5: 'RR', 6: 'RL', 7: 'LR', 8: 'LL',
                      9: 'XX', 10: 'XY', 11: 'YX', 12: 'YY'}
-    tb.open(msfile+'/POLARIZATION')
-    ncorr_prods = int(tb.getcol("NUM_CORR"))
-    corr_prods = tb.getcol("CORR_TYPE").squeeze()
+    with table(msfile+'::POLARIZATION', ack=False) as tb:
+        ncorr_prods = int(tb.getcol("NUM_CORR"))
+        corr_prods = tb.getcol("CORR_TYPE").squeeze()
+        tb.close()
     # associate corr prod with 4 tuple indices
     lin_prods = np.array([corr_prods_id[prod] for prod in corr_prods])
     Xpol_idx = np.nonzero(lin_prods == 'XX')[0][0]  # H pol
     Ypol_idx = np.nonzero(lin_prods == 'YY')[0][0]  # V pol
-    tb.close()
     # H = XX
-    print('H pol {} index in corr products'.format(Xpol_idx))
+#     caracal.log.info(f'H pol {Xpol_idx} index in corr products')
     # V = YY
-    print('V pol {} index in corr products'.format(Ypol_idx))
+#     caracal.log.info(f'V pol {Ypol_idx} index in corr products')
 
-    tb.open(msfile+"/SPECTRAL_WINDOW")
-    freq_range = tb.getcol("CHAN_FREQ")
-    tb.close()
-
+    freq_range = table(msfile+"::SPECTRAL_WINDOW", ack=False).getcol("CHAN_FREQ").squeeze()
     return msfile, nrows, Xpol_idx, Ypol_idx, freq_range
 
 
@@ -66,41 +56,50 @@ def create_empty_B(bpolytable, template_bcal, nrows=1):
     """
     Create an empty B cal table from BPOLY cal table
 
-    @param bpolytable string    : CARACal table name (*.P?)
-    @param template_bcal string : Empty Bcal table name (*.B)
+    @param bpolytable string    : CARACal BPOLY table name
+    @param template_bcal string : Empty Bcal table name
     @param nrows int            : [Optional] Number of rows in table
 
     @return btable string    : Name of empty CASA B table name
     """
-    # output MS assuming BCAL table
-    [filename, ext] = os.path.splitext(os.path.basename(bpolytable))
-    btable="{}.B{}".format(filename, ext[-1])
+    dirname = os.path.dirname(bpolytable)
+    tblname = os.path.basename(bpolytable)
+    basename, baseext = os.path.splitext(tblname)
+
+    # rename the BPOLY cal table as backup
+    btable = bpolytable
+    bpolytable= os.path.join(dirname, basename+"_bpoly"+baseext)
+    if os.path.exists(bpolytable):
+        os.system(f'rm -rf {bpolytable}')
+    os.rename(btable, bpolytable)
 
     # get old table schema by reading empty templage MS: "",
-    print("Creating BCAL table {}".format(btable))
-    tb.open(template_btable)
-    tb.copy(btable, deep=True)
-    tb.close()
-
+#     caracal.log.info(f"Creating BCAL table {btable}")
+    table(template_btable, ack=False).copy(btable, deep=True)
     # add the rows _before_ filling the columns.
-    tb.open(btable, nomodify=False)
-    tb.addrows(nrows-1)
-    tb.close()
+    table(btable, ack=False, readonly=False).addrows(nrows-1)
 
     return btable
 
 
-def addsubtables(msname, btable):
-    # note which MS you used
-    tb.open(btable, nomodify=False)
-    fieldnames=tb.getkeywords()
-    tb.putkeyword("MSName", msname)
-    tb.flush()
-    tb.close()
+def addsubtables(msfile, btable):
+    """
+    Copy Bcal subtables from linked MS file
+
+    @param btable string : CARACal Bcal table name
+    @param msfile string : Name of reference MS file
+
+    @return None
+    """
+    # cp subtables from MS
+    with table(btable, ack=False, readonly=False) as tb:
+        fieldnames=tb.getkeywords()
+        tb.putkeyword("MSName", msfile)
+        tb.flush()
 
     # get list of subtables to create
     subtable_list = []
-    for name, value in fieldnames.iteritems():
+    for name, value in fieldnames.items():
         if "table" in str(value).lower():
             subtable_list.append([name, value.split()[-1].strip()])
 
@@ -108,32 +107,126 @@ def addsubtables(msname, btable):
     for name, path in subtable_list:
         if name == 'HISTORY':
             continue
-        tb.open(msname+'/'+name)
-        tb.copyrows(btable+'/'+name, startrowout=0)
-        tb.close()
+        intable = f"{msfile}::{name}"
+        outtable = f"{btable}::{name}"
+        with table(outtable, ack=False, readonly=False) as tbout:
+            table(intable, ack=False).copyrows(tbout, startrowin=0, startrowout=0)
+            tbout.flush()
 
 
-def readcolumn(bpolytable, bp_field=None):
+def readcolumnasscalar(bpolytable, bp_field):
+    """
+    CASA varcol data / python dict column values flatten to np.ndarray
+
+    @param bpolytable string : CARACal BPOLY table name
+    @param bp_field string   : Name of BPOLY column to read
+
+    @return colvalues ndarray : Column values as flat array
+    """
+    colvalues = readcolumn(bpolytable, bp_field)
+    if isinstance(colvalues, dict):
+        flatlist = []
+        for key, value in colvalues.items():
+            flatlist.append(value.squeeze())
+        colvalues = np.array(flatlist)
+    return colvalues
+
+
+def readcolumn(btable, bp_field=None):
     """
     Read column data from BPOLY cal table
 
-    @param bpolytable string : CARACal table name (*.P?)
-    @param bp_field string   : Name of BPOLY column to read
+    @param btable string   : CARACal B table name
+    @param bp_field string : Name of BPOLY column to read
 
-    @return values Array     : BPOLY column values 
+    @return values ndarray   : BPOLY column values 
     """
-    tb.open(bpolytable)
-    # check if column has values
-    values = None
-    try:
-        if tb.iscelldefined(bp_field):
-            # read values
+    with table(btable, ack=False) as tb:
+        if tb.isscalarcol(bp_field):
             values = tb.getcol(bp_field)
-    except RuntimeError:
-        pass
-    tb.close()
-    return values 
+        elif tb.isvarcol(bp_field):
+            values = tb.getvarcol(bp_field)
+        else:
+            values = tb.getcol(bp_field)
+    return values
 
+
+def makecolumndata(values, arrsize=[], dtype=np.ndarray, varcol=False):
+    """
+    Create ndarray or dict column values
+
+    @param values float/bool/None : Default value to populate column array
+    @param arrsize list           : Array dimensions, e.g. [nrow, ncol]
+    @param dtype string/obj       : Dtype of numpy array elements
+    @param varcol bool            : [Optional] convert default array to dict
+
+    @return values ndarray/dict   : Default column values
+    """
+    # create dummy array for CASA
+    if dtype == 'boolean': dtype='bool'
+    if isinstance(dtype, str):
+        dtype=eval(dtype)
+    # create empty array
+    if values is None:
+        values = np.empty(arrsize, dtype=dtype)
+    # create dummy array
+    if not isinstance(values, np.ndarray):
+        values = np.full(arrsize, values, dtype=dtype)
+    if varcol:
+        # unpack np.darray into varcol dict
+        valuedict = {}
+        for rowcnt, valueline in enumerate(values):
+            valuedict[f"r{rowcnt+1}"] = np.expand_dims(np.array(valueline), axis=0)
+        values = valuedict
+    return values
+
+
+def writecolumndata(btable, main_tbl_dict):
+    """
+    Write column data to table
+
+    @param btable string        : CARACal B table name
+    @param mail_tbl_dict dict   : Bcal table main table 
+
+    @return None
+    """
+    colnames = table(btable, ack=False).colnames()
+    [nrows, nchans, npols] = main_tbl_dict['CPARAM'].shape
+    with table(btable, ack=False, readonly=False) as tb:
+        for colname in colnames:
+            # get info from input table
+            coldtype = tb.coldatatype(colname)
+            if tb.isscalarcol(colname):
+                arrshape = tb.getcol(colname).shape
+            if tb.isvarcol(colname):
+                arrshape = tb.getvarcol(colname)['r1'].shape
+            if len(arrshape) == 1:
+                # 1d array len nrows
+                pass
+            elif len(arrshape) == 2:
+                arrshape = [nrows,nchans]
+            else:
+                arrshape = [nrows,nchans, npols]
+            # update input table
+            if colname in main_tbl_dict:
+                values = main_tbl_dict[colname]
+                if isinstance(values, dict):
+                    tb.putvarcol(colname, values)
+                else:
+                    tb.putcol(colname, values)
+            else:
+                if tb.isvarcol(colname):
+                    values = makecolumndata(0.,
+                                            arrsize=arrshape,
+                                            dtype=coldtype,
+                                            varcol=True)
+                    tb.putvarcol(colname, values)
+                else:
+                    values = makecolumndata(0.,
+                                            arrsize=arrshape,
+                                            dtype=coldtype)
+                    tb.putcol(colname, values)
+            tb.flush()
 
 def calcChebyshev(coeff, validDomain, x):
     """
@@ -158,7 +251,7 @@ def readBPOLY(bpolytable):
     """
     Extract polyfit coefficients from bpolytable
 
-    @param bpolytable string        : CARACal table name (*.P?)
+    @param bpolytable string        : CARACal BPOLY table name
 
     @return scaleFactor NDArray     : Amplitude scale factor
     @return antennasBP NDArray      : Antenna IDs
@@ -170,45 +263,46 @@ def readBPOLY(bpolytable):
     @return polynomialPhase NDArray : Phase fit Chebyshev coefficients
     """
 
-    tb.open(bpolytable)
-
     # output for user info
-    polyMode = tb.getcol('POLY_MODE')
-    print("This is a BPOLY solution = %s" % (polyMode[0]))
-    polyType = tb.getcol('POLY_TYPE')
-    print("The 'BPOLY' solver fits ({}) polynomials to the amplitude and phase of the calibrator visibilities as a function of frequency."
-            .format(np.unique(polyType)))
-    uniqueTimesBP = np.unique(tb.getcol('TIME'))
+    polyMode = readcolumn(bpolytable, "POLY_MODE")
+#     caracal.log.info(f"This is a BPOLY solution = {polyMode[0]}")
+    polyType = readcolumn(bpolytable, "POLY_TYPE")
+#     caracal.log.info(f"The 'BPOLY' solver fits ({np.unique(polyType)}) polynomials to the amplitude and phase of the calibrator visibilities as a function of frequency.")
+
+    uniqueTimesBP = np.unique(readcolumn(bpolytable, "TIME"))
     nUniqueTimesBP = len(uniqueTimesBP)
-    tsstring = "There are %d unique times in the BPOLY solution: " % nUniqueTimesBP
+    tsstring = f"There are {nUniqueTimesBP} unique times in the BPOLY solution: "
     for u in uniqueTimesBP:
         tsstring += '%.3f, ' % (u)
-    print(tsstring)
+#     caracal.log.info(tsstring)
 
     # table information needed for display
-    scaleFactor = tb.getcol('SCALE_FACTOR')
-    antennasBP = tb.getcol('ANTENNA1')
-    frequencyLimits = tb.getcol('VALID_DOMAIN')
+    scaleFactor = readcolumnasscalar(bpolytable, 'SCALE_FACTOR')
+    antennasBP = readcolumnasscalar(bpolytable, 'ANTENNA1')
+    frequencyLimits = readcolumnasscalar(bpolytable, 'VALID_DOMAIN')
 
-    # poly fit degrees
-    nPolyAmp = tb.getcol('N_POLY_AMP')
+     # poly fit degrees
+    nPolyAmp = readcolumnasscalar(bpolytable, 'N_POLY_AMP')
     degamp = int(np.unique(nPolyAmp))
-    nPolyPhase = tb.getcol('N_POLY_PHASE')
+    nPolyPhase = readcolumnasscalar(bpolytable, 'N_POLY_PHASE')
     degphase = int(np.unique(nPolyPhase))
-    print("BPOLY fit using AMP order %d and PHASE order %d" % (degamp, degphase))
+#     caracal.log.info(f"BPOLY fit using AMP order {degamp} and PHASE order {degphase}")
+
     # amplitude coefficients for antenna
-    polynomialAmplitude = []
-    polynomialPhase = []
-    for i in range(len(polyMode)):
-        polynomialAmplitude.append([1])
-        polynomialPhase.append([0])
-        if (polyMode[i] == 'A&P' or polyMode[i] == 'A'):
-            polynomialAmplitude[i]  = tb.getcell('POLY_COEFF_AMP',i)[0][0][0]
-        if (polyMode[i] == 'A&P' or polyMode[i] == 'P'):
-            polynomialPhase[i] = tb.getcell('POLY_COEFF_PHASE',i)[0][0][0]
+    if (polyMode[0] == 'A&P' or polyMode[0] == 'A'):
+        polynomialAmplitude = readcolumnasscalar(bpolytable, "POLY_COEFF_AMP")
+        polynomialAmplitude = np.insert(polynomialAmplitude,
+                                        0,
+                                        polynomialAmplitude.shape[1]*[1],
+                                        axis=0)
 
-    tb.close()
-
+    # phase coefficients for antenna
+    if (polyMode[0] == 'A&P' or polyMode[0] == 'P'):
+        polynomialPhase = readcolumnasscalar(bpolytable, "POLY_COEFF_PHASE")
+        polynomialPhase = np.insert(polynomialPhase,
+                                    0,
+                                    polynomialPhase.shape[1]*[0],
+                                    axis=0)
     return scaleFactor, antennasBP, frequencyLimits, nPolyAmp, nPolyPhase, polynomialAmplitude, polynomialPhase
 
 
@@ -216,11 +310,12 @@ def bpolyfit(bpolytable, freq_range):
     """
     Calculate gain solutions from BPOLY table
 
-    @param bpolytable string : CARACal table name (*.P?)
-    @param freq_range Array  : Observation Frequency range [Hz]
+    @param bpolytable string   : CARACal BPOLY table name
+    @param freq_range ndarray  : Observation Frequency range [Hz]
 
-    @return bcal_sol NDArray : Bcal solution from poly fit
+    @return bcal_sol ndarray : Bcal solution from poly fit
     """
+
     # read caltable
     [scaleFactor,
      antennasBP,
@@ -231,20 +326,19 @@ def bpolyfit(bpolytable, freq_range):
      polynomialPhase] = readBPOLY(bpolytable)
 
     # display results
-    print("The degphase ({}) and degamp ({}) parameters indicate the polynomial degree desired for the amplitude and phase solutions."
-          .format(np.unique(nPolyPhase), np.unique(nPolyAmp)))
-    bcal_sol = np.full([2, len(freq_range), len(antennasBP)], 0.+1j*0 ,dtype=np.complex128)
+#     caracal.log.info(f"The degphase ({np.unique(nPolyPhase)}) and degamp ({np.unique(nPolyAmp)}) parameters indicate the polynomial degree desired for the amplitude and phase solutions.")
+    bcal_sol = np.full([len(antennasBP), len(freq_range), 2], 0.+1j*0 ,dtype=np.complex128)
+    freq_rangeHz_ = np.array(freq_range)
     for index in antennasBP:
         # start and end frequency (hz) defining valid frequency domain
         scaleFactor_ = scaleFactor[index]
-        validDomain_ = [frequencyLimits[0,index], frequencyLimits[1,index]]
-        freq_rangeHz_ = np.array(freq_range)
+        validDomain_ = [frequencyLimits[index,0], frequencyLimits[index,1]]
         # X pol coefficients
-        AmpCoeffX_ = np.array(polynomialAmplitude[index][0:nPolyAmp[index]], dtype=float)
-        PhaseCoeffX_ = np.array(polynomialPhase[index][0:nPolyPhase[index]], dtype=float)
+        AmpCoeffX_ = polynomialAmplitude[index, 0:nPolyAmp[index]]
+        PhaseCoeffX_ = polynomialPhase[index, 0:nPolyPhase[index]]
         # Y pol coefficients
-        AmpCoeffY_ = np.array(polynomialAmplitude[index][nPolyAmp[index]:2*nPolyAmp[index]], dtype=float)
-        PhaseCoeffY_ = np.array(polynomialPhase[index][nPolyPhase[index]:2*nPolyPhase[index]], dtype=float)
+        AmpCoeffY_ = polynomialAmplitude[index, nPolyAmp[index]:2*nPolyAmp[index]]
+        PhaseCoeffY_ = polynomialPhase[index, nPolyPhase[index]:2*nPolyPhase[index]]
         # calculate CHEBYSHEV poly values
         amplitudeSolutionX = np.real(scaleFactor_) \
                            + calcChebyshev(AmpCoeffX_,
@@ -265,8 +359,8 @@ def bpolyfit(bpolytable, freq_range):
 
         antBX = np.array(amplitudeSolutionX*(np.cos(phaseSolutionX) + 1j*np.sin(phaseSolutionX)), dtype=np.complex128)
         antBY = np.array(amplitudeSolutionY*(np.cos(phaseSolutionY) + 1j*np.sin(phaseSolutionY)), dtype=np.complex128)
-        antB = np.vstack([antBX.squeeze(), antBY.squeeze()])
-        bcal_sol[:,:,index] = antB
+        antB = np.column_stack([antBX.squeeze(), antBY.squeeze()])
+        bcal_sol[index, :, :] = antB
     return bcal_sol
 
 
@@ -284,7 +378,7 @@ def map_main_tbl(
     @return freq_range Array : Observation Frequency range [Hz]
     @return nrows int        : [Optional] Nr of rows in Bcal table
 
-    @return mail_tbl_dict Dict : Bcal table main table 
+    @return mail_tbl_dict dict : Bcal table main table 
     """
     main_tbl_dict = {}
     # nrows [linux ts]
@@ -302,22 +396,17 @@ def map_main_tbl(
     # nrows [int]
     main_tbl_dict["OBSERVATION_ID"] = readcolumn(bpolytable, bp_field="OBSERVATION_ID")
 
-    # nrows [int]
-    spw_id = readcolumn(bpolytable+"/CAL_DESC", bp_field="SPECTRAL_WINDOW_ID")
-    main_tbl_dict["SPECTRAL_WINDOW_ID"] = np.array(nrows*[int(spw_id)], dtype=np.int32)
+    # nrows [varcol]
+    spw_id = readcolumn(bpolytable+"::CAL_DESC", bp_field="SPECTRAL_WINDOW_ID")
+    if isinstance(spw_id, dict):
+        spw_id_varcol = makecolumndata(spw_id["r1"][0][0],
+                                       arrsize=[nrows],
+                                       dtype=spw_id["r1"][0][0].dtype,
+                                       varcol=True)
+        main_tbl_dict["SPECTRAL_WINDOW_ID"] = spw_id_varcol
 
     # 2 x nchans x nrows [complex] 
     main_tbl_dict["CPARAM"] = bpolyfit(bpolytable, freq_range)
-
-    # default values for now
-    nchans = len(freq_range)
-    # 2 x nchans x nrows [bool] 
-    main_tbl_dict['FLAG'] = np.full([2, nchans, nrows], 0., dtype=float)
-    main_tbl_dict["PARAMERR"] = np.full([2, nchans, nrows], 0., dtype=float)
-    main_tbl_dict["SNR"] = np.full([2, nchans, nrows], 0., dtype=float)
-
-    # leave some columns empty for now
-    main_tbl_dict["WEIGHT"] = np.empty([2, nchans, nrows], dtype=float)
 
     return main_tbl_dict
 
@@ -326,20 +415,18 @@ def Bpoly2B(bpolytable, template_btable):
     """
     Build a CASA B table from a CASA BPOLY table
 
-    @param bpolytable string    : CARACal table name (*.P?)
-    @param template_bcal string : Empty Bcal table name (*.B)
+    @param bpolytable string    : CARACal BPOLY table name
+    @param template_bcal string : Empty Bcal template table name
 
-    @return btable string : CASA table name (*.B?)
+    @return btable string : CASA B table name
     """
+#     caracal.log.info('Building a CASA B table from BPOLY table')
     # get various bits of metadata needed to extract and reconstruct information
     [msfile,
      nrows,
      Xpol_idx,
      Ypol_idx,
      freq_range] = metaref(bpolytable)
-
-    # create empty BCAL table
-    btable = create_empty_B(bpolytable, template_btable, nrows=nrows)
 
     # mapping of main table
     main_tbl_dict = map_main_tbl(
@@ -349,30 +436,11 @@ def Bpoly2B(bpolytable, template_btable):
                                  nrows=nrows,
                                  )
 
-    # write info to Btable
-    column_names = [
-                    "TIME",
-                    "FIELD_ID",
-                    "SPECTRAL_WINDOW_ID",
-                    "ANTENNA1",
-                    "ANTENNA2",
-                    "INTERVAL",
-                    "SCAN_NUMBER",
-                    "OBSERVATION_ID",
-                    "CPARAM",
-                    "PARAMERR",
-                    "FLAG",
-                    "SNR",
-                    "WEIGHT",
-                    ]
+    # create empty BCAL table
+    btable = create_empty_B(bpolytable, template_btable, nrows=nrows)
 
-    tb.open(btable, nomodify=False)
-    # force to release all locks
-    tb.clearlocks()
-    for col in column_names:
-        tb.putcol(col, main_tbl_dict[col])
-        tb.flush()
-    tb.close()
+    # build Btable from BPOLY table
+    writecolumndata(btable, main_tbl_dict)
 
     # copy relevant MS subtables over
     addsubtables(msfile, btable)

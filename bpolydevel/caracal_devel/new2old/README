@@ -1,9 +1,12 @@
 Constructing a Bcal solution table from a BPOLY solution table
 
+Use python venv running python3
+`source venv3.7/bin/activate`
+
 Run from within CASA python environment
 
 Plot bandpass solution from CARACAL bpoly table *.P?   
-`run bpoly_tbl.py`
+`run plot_bpoly.py`
 
 Create an empty B cal table from an existing CASA table
 `run make_empty_bcal_table.py <table_name.B>`
@@ -15,5 +18,8 @@ Construct a B cal table from a CARACal bpoly table
 browsetable("3C39_comet-1627186165_sdp_l0-1gc_primary.B1")
 plotms(vis="3C39_comet-1627186165_sdp_l0-1gc_primary.B1", xaxis='freq', yaxis='amp', coloraxis='baseline')
 ```
+
+Running BPOLY to Bcal template in python
+`python3 bpolytob.py <table_name.P> <template_name.B>`
 
 -fin-

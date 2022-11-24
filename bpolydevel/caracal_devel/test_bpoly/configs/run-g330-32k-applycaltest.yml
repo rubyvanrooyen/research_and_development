@@ -1,0 +1,282 @@
+schema_version: 1.0.4
+
+
+## Generate MS for calibration
+general:
+  prefix: G330
+  title: G330
+  # Location where CARACal will write and expect to find .MS files.
+#   msdir: msdir-applycal
+  msdir: msdir-bpoly
+  rawdatadir: ms-orig
+#   output: output-g330-32k-applycal
+  output: output-g330-32k-bpoly
+
+getdata:
+  dataid: [1625501782_sdp_l0]
+  extension: ms
+
+obsconf:
+  refant: auto
+  target:
+    - 'G330.89-0.36'
+  gcal:
+    - 'J1726-5529'
+  bpcal:
+    - 'J1939-6342'
+  fcal:
+    - 'J1939-6342'
+  obsinfo:
+    enable: True
+    plotelev:
+      enable: True
+      plotter: plotms
+
+
+## Extract full dataset as copy MS to msdir
+# Split, average and/or calibrate the data.
+transform:
+  # Execute the transform worker
+  enable: false
+#   enable: true
+#   label_out: cal
+#   field: calibrators
+#   split_field:
+#     enable: true
+#     chan_avg: 8
+#     col: data
+
+prep__calibrators:
+  enable: true
+#   label_in: cal
+  label_in: ''
+  field: calibrators
+#   fixuvw:
+#     enable: true
+  clearcal: true
+  specweights:
+    enable: true
+    mode: uniform
+
+flag__calibrators:
+  enable: true
+#   label_in: cal
+  label_in: ''
+  field: calibrators
+  flag_autocorr:
+    enable: true
+  flag_shadow:
+    enable: true
+  flag_spw:
+    enable: true
+    # for narrow band only flag out the band edges
+    # these modes will prob be used for spectral lines, and flagged manually
+    chans: '*:1630MHz~1657MHz,*:1673MHz~1700MHz'
+    ensure_valid: false
+  # time and antenna flags from WB processing is carried over
+  # freq/ channel based flagging are done independently after inspecting the NB data
+  flag_time:
+    enable: true
+    timerange: '2021/07/05/16:17:30~2021/07/05/16:19:50,2021/07/05/16:26:45~2021/07/05/16:27:15'
+    ensure_valid: false
+  flag_antennas:
+    enable: true
+    antennas: 'm054'
+    ensure_valid: false
+
+crosscal:
+  enable: true
+#   label_in: cal
+  label_in: ''
+  label_cal: 1gc
+  uvrange: '>150'
+  set_model:
+    enable: true
+    # error in 1934 model for this caracal installation, using meqtree model
+    meerkat_skymodel: true
+  primary:
+#     reuse_existing_gains: true
+    reuse_existing_gains: false
+    order: KGPAKGP
+    combine: ["scan", "spw", "scan,spw", null, "", "", "scan,spw"]
+    solint: [inf, inf, inf, null, int, int, inf]
+    calmode: [ap, ap, ap, null, ap, ap, ap]
+    b_fillgaps: 70
+#     degamp: 9
+    degamp: 3
+    degphase: 3
+    visnorm: false
+#     plotgains: true
+    plotgains: false
+  # the default rime is 'KGB', so if you are using the 'P' option
+  # you need to specify it for all the calibrators, else the pipeline
+  # will attempt to run 'B' which will cause and error, because it does not exist
+  secondary:
+#     reuse_existing_gains: true
+    reuse_existing_gains: false
+    order: KGAKF
+    apply: P
+    combine: ["scan", "spw", null, "", ""]
+    solint: [inf, inf, null, 60s, 60s]
+    calmode: [ap, ap, null, ap, ap]
+#     plotgains: true
+    plotgains: false
+  apply_cal:
+    applyto:
+      - fcal
+      - gcal
+      - target
+
+# inspect_data:
+#   enable: true
+
+# Split out target for spectral analysis
+transform__target:
+  enable: true
+  label_in: ''
+  field: target
+  label_out: corr
+  split_field:
+    enable: true
+    col: corrected
+
+# You can only prep targets after transform
+prep__target:
+  enable: true
+  label_in: corr
+  field: target
+#   fixuvw:
+#     enable: true
+  specweights:
+    enable: true
+    mode: uniform
+
+# Flag targets after they are split out
+flag__target:
+  enable: true
+  label_in: corr
+  field: target
+  flag_autocorr:
+    enable: true
+  flag_shadow:
+    enable: true
+  flag_spw:
+    enable: true
+    # for narrow band only flag out the band edges
+    chans: '*:1630MHz~1657MHz,*:1673MHz~1700MHz'
+    ensure_valid: false
+  flag_antennas:
+    enable: true
+    antennas: 'm054'
+    ensure_valid: false
+
+# Average data for continuum imaging
+transform__cont_target:
+  enable: true
+  field: target
+  label_in: corr
+  label_out: cont
+  split_field:
+    enable: true
+    chan_avg: 8
+    col: data
+
+# Flag lines to only have cont
+flag__cont_lines:
+  enable: true
+  field: target
+  label_in: cont
+  flag_spw:
+    enable: true
+    # for narrow band only flag out the band edges
+    chans: '*:1665.70MHz~1666MHz,*:1667.6MHz~1668MHz'
+    ensure_valid: false
+
+# mask:
+#   enable: false
+# 
+# selfcal:
+#   enable: true
+#   label_in: cont
+#   # Number of pixels in output image
+#   img_npix: 8192
+#   # Image pixel size (in units of arcsec)
+#   img_cell: 1.5
+#   # Type of image weighting, where the options are ‘briggs’, ‘uniform’, and ‘natural’.
+#   img_weight: briggs
+#   # Briggs robust value
+#   img_robust: 0.
+#   # Gain for major iterations in WSClean
+#   img_mgain: 0.85
+#   # Number of channels in output image
+#   img_nchans: 12
+#   # Number of cleaning iterations
+#   img_niter: 20000
+#   # Stokes image to create
+#   img_stokes: I
+#   # Number of self-calibration iterations to perform
+#   cal_niter: 4
+#   # Imaging parameters
+#   image:
+#     enable: true
+#     cleanmask_thr: [20,15,10,5,5]
+#     clean_cutoff: [0.5,0.5,0.5,0.3,0.3]
+#   # Calibration parameters
+#   calibrate:
+#     enable: true
+#     model: ['1','2','3','4']
+#     gain_matrix_type: ['GainDiagPhase', 'GainDiagPhase', 'GainDiagPhase', 'GainDiag']
+#     gsols_chan: [0, 0, 0, 100]
+#     gsols_timeslots: [120, 120, 60, 60]
+#   # Interpolate gains over the high frequency-resolution data
+#   transfer_apply_gains:
+#     enable: true
+#     transfer_to_label: corr
+#   # Transfer the model from the last WSClean imaging run to the MODEL_DATA column of another .MS
+#   transfer_model:
+#     enable: true
+#     num_workers: 40
+#     mem_frac: 0.45
+#     transfer_to_label: corr
+# 
+# ## Make a copy of the target dataset before processing
+# # Need to make copies per maser target once this pipeline is going
+# transform__g330:
+#   enable: true
+#   label_in: corr
+#   label_out: maser
+#   split_field:
+#     enable: true
+#     col: all
+#     otfcal:
+#       enable: false
+# 
+# 
+# line:
+#   enable: true
+#   label_in: maser
+#   line_name: OH
+#   restfreq: '1665.40184MHz'
+# #   subtractmodelcol:
+# #     enable: true
+# #   make_cube:
+# #     enable: true
+# #     npix: [1800]
+# #     cell: 3
+# #     taper: 10
+# #     robust: 0
+# #   mstransform: 
+# #     enable: true
+# #     telescope: meerkat
+# #     fitorder: 1
+# # #    fitspw: '*:1300~1417.2MHz,*:1421.0~1600MHz'
+# #   pb_cube:
+# #     enable: true
+# #   freq_to_vel:
+# #     enable: false
+# #   remove_stokes_axis:
+# #     enable: true
+# #   sofia:
+# #     enable: true
+
+# -fin-

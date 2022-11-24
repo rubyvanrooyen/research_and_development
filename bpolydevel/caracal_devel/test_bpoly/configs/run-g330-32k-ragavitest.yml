@@ -1,0 +1,84 @@
+schema_version: 1.0.4
+
+
+## Generate MS for calibration
+general:
+  prefix: G330
+  title: G330
+  msdir: msdir-ragavi
+  rawdatadir: ms-orig
+  output: output-g330-32k-ragavi
+
+getdata:
+  dataid: [1625501782_sdp_l0]
+  extension: ms
+
+obsconf:
+  refant: auto
+
+## Processing calibrators
+transform__calibrators:
+  enable: true
+  label_out: cal
+  field: calibrators
+  split_field:
+    enable: true
+    chan_avg: 8
+    col: data
+
+prep__calibrators:
+  enable: true
+  label_in: cal
+  field: calibrators
+  clearcal: true
+  specweights:
+    enable: true
+    mode: uniform
+
+flag__calibrators:
+  enable: true
+  label_in: cal
+  field: calibrators
+  flag_autocorr:
+    enable: true
+  flag_shadow:
+    enable: true
+  flag_spw:
+    enable: true
+    # for narrow band only flag out the band edges
+    # these modes will prob be used for spectral lines, and flagged manually
+    chans: '*:1630MHz~1657MHz,*:1673MHz~1700MHz'
+    ensure_valid: false
+
+crosscal:
+  enable: true
+  label_in: cal
+  label_cal: 1gc
+  uvrange: '>150'
+  set_model:
+    enable: true
+    # error in 1934 model for this caracal installation, using meqtree model
+    meerkat_skymodel: true
+  primary:
+    reuse_existing_gains: true
+    order: KGPAKGP
+    combine: ["scan", "spw", "scan,spw", null, "", "", "scan,spw"]
+    solint: [inf, inf, inf, null, int, int, inf]
+    calmode: [ap, ap, ap, null, ap, ap, ap]
+    b_fillgaps: 70
+    degamp: 9
+    degphase: 3
+    visnorm: false
+    plotgains: true
+  # the default rime is 'KGB', so if you are using the 'P' option
+  # you need to specify it for all the calibrators, else the pipeline
+  # will attempt to run 'B' which will cause and error, because it does not exist
+  secondary:
+    reuse_existing_gains: true
+    order: KGAKF
+    apply: P
+    combine: ["scan", "spw", null, "", ""]
+    solint: [inf, inf, null, 60s, 60s]
+    calmode: [ap, ap, null, ap, ap]
+    plotgains: true
+

@@ -10,6 +10,7 @@ import sys
 import numpy as np
 
 from casacore.tables import table
+import casacore.fitting as fitting
 
 
 def metaref(bpolytable):
@@ -23,6 +24,8 @@ def metaref(bpolytable):
     @return Xpol_idx int       : Index of XX pol correlator data
     @return Ypol_idx int       : Index of YY pol correlator data
     @return freq_range ndarray : Observation Frequency range [Hz]
+    @return antennas ndarray   : List of antenna names in array
+    @return flag_mask ndarray  : Boolean array of generally flagged channels
     """
 
     # get nr of rows for new table
@@ -45,11 +48,22 @@ def metaref(bpolytable):
     Ypol_idx = np.nonzero(lin_prods == 'YY')[0][0]  # V pol
     # H = XX
 #     caracal.log.info(f'H pol {Xpol_idx} index in corr products')
+    print(f'H pol {Xpol_idx} index in corr products')
     # V = YY
 #     caracal.log.info(f'V pol {Ypol_idx} index in corr products')
+    print(f'V pol {Ypol_idx} index in corr products')
 
     freq_range = table(msfile+"::SPECTRAL_WINDOW", ack=False).getcol("CHAN_FREQ").squeeze()
-    return msfile, nrows, Xpol_idx, Ypol_idx, freq_range
+    antennas = table(msfile+"::ANTENNA", ack=False).getcol("NAME")
+
+    # find passband from flags
+    flags = table(msfile, ack=False).getcol("FLAG")
+    [num_rows, num_chans, num_pols] = flags.shape
+    flags=flags.sum(axis=0)/num_rows
+    flags = flags.sum(axis=1)/num_pols
+    flag_mask = flags > 0.5
+
+    return msfile, nrows, Xpol_idx, Ypol_idx, freq_range, antennas, flag_mask
 
 
 def create_empty_B(bpolytable, template_bcal, nrows=1):
@@ -197,9 +211,11 @@ def writecolumndata(btable, main_tbl_dict):
             # get info from input table
             coldtype = tb.coldatatype(colname)
             if tb.isscalarcol(colname):
+                print(colname, coldtype, tb.getcol(colname))
                 arrshape = tb.getcol(colname).shape
             if tb.isvarcol(colname):
-                arrshape = tb.getvarcol(colname)['r1'].shape
+                print(colname, coldtype, np.shape(tb.getvarcol(colname)['r1']))
+                arrshape = np.shape(tb.getvarcol(colname)['r1'])
             if len(arrshape) == 1:
                 # 1d array len nrows
                 pass
@@ -228,23 +244,23 @@ def writecolumndata(btable, main_tbl_dict):
                     tb.putcol(colname, values)
             tb.flush()
 
-def calcChebyshev(coeff, validDomain, x):
-    """
-    Given a set of coefficients, evaluate a Chebyshev series at points x
-
-    @param coeff NDArray    : Chebyshev polynomial coefficients
-    @param validDomain List : Domain to use. The interval [domain[0], domain[1]]
-    @param coeff NDArray    : Points to evaluate coefficients at
-
-    @return values NDArray  : Chebyshev approximated values
-
-    """
-    xrange_ = validDomain[1] - validDomain[0]
-    x = -1 + 2*(x-validDomain[0])/xrange_
-    coeff[0] = 0
-
-    values = np.polynomial.chebyshev.chebval(x, coeff)
-    return values
+# def calcChebyshev(coeff, validDomain, x):
+#     """
+#     Given a set of coefficients, evaluate a Chebyshev series at points x
+# 
+#     @param coeff NDArray    : Chebyshev polynomial coefficients
+#     @param validDomain List : Domain to use. The interval [domain[0], domain[1]]
+#     @param coeff NDArray    : Points to evaluate coefficients at
+# 
+#     @return values NDArray  : Chebyshev approximated values
+# 
+#     """
+#     xrange_ = validDomain[1] - validDomain[0]
+#     x = -1 + 2*(x-validDomain[0])/xrange_
+#     coeff[0] = 0
+# 
+#     values = np.polynomial.chebyshev.chebval(x, coeff)
+#     return values
 
 
 def readBPOLY(bpolytable):
@@ -266,8 +282,10 @@ def readBPOLY(bpolytable):
     # output for user info
     polyMode = readcolumn(bpolytable, "POLY_MODE")
 #     caracal.log.info(f"This is a BPOLY solution = {polyMode[0]}")
+    print(f"This is a BPOLY solution = {polyMode[0]}")
     polyType = readcolumn(bpolytable, "POLY_TYPE")
 #     caracal.log.info(f"The 'BPOLY' solver fits ({np.unique(polyType)}) polynomials to the amplitude and phase of the calibrator visibilities as a function of frequency.")
+    print(f"The 'BPOLY' solver fits ({np.unique(polyType)}) polynomials to the amplitude and phase of the calibrator visibilities as a function of frequency.")
 
     uniqueTimesBP = np.unique(readcolumn(bpolytable, "TIME"))
     nUniqueTimesBP = len(uniqueTimesBP)
@@ -283,35 +301,38 @@ def readBPOLY(bpolytable):
 
      # poly fit degrees
     nPolyAmp = readcolumnasscalar(bpolytable, 'N_POLY_AMP')
-    degamp = int(np.unique(nPolyAmp))
+    degamp = int(np.unique(nPolyAmp)) - 1
     nPolyPhase = readcolumnasscalar(bpolytable, 'N_POLY_PHASE')
-    degphase = int(np.unique(nPolyPhase))
-#     caracal.log.info(f"BPOLY fit using AMP order {degamp} and PHASE order {degphase}")
+    degphase = int(np.unique(nPolyPhase)) - 1
+#     caracal.log.info(f"BPOLY fit using AMP order {degamp-1} and PHASE order {degphase-1}")
+    print(f"BPOLY fit using AMP order {degamp} and PHASE order {degphase}")
 
     # amplitude coefficients for antenna
     if (polyMode[0] == 'A&P' or polyMode[0] == 'A'):
         polynomialAmplitude = readcolumnasscalar(bpolytable, "POLY_COEFF_AMP")
-        polynomialAmplitude = np.insert(polynomialAmplitude,
-                                        0,
-                                        polynomialAmplitude.shape[1]*[1],
-                                        axis=0)
+#         polynomialAmplitude = np.insert(polynomialAmplitude,
+#                                         0,
+#                                         polynomialAmplitude.shape[1]*[1],
+#                                         axis=0)
 
     # phase coefficients for antenna
     if (polyMode[0] == 'A&P' or polyMode[0] == 'P'):
         polynomialPhase = readcolumnasscalar(bpolytable, "POLY_COEFF_PHASE")
-        polynomialPhase = np.insert(polynomialPhase,
-                                    0,
-                                    polynomialPhase.shape[1]*[0],
-                                    axis=0)
+#         polynomialPhase = np.insert(polynomialPhase,
+#                                     0,
+#                                     polynomialPhase.shape[1]*[0],
+#                                     axis=0)
     return scaleFactor, antennasBP, frequencyLimits, nPolyAmp, nPolyPhase, polynomialAmplitude, polynomialPhase
 
 
-def bpolyfit(bpolytable, freq_range):
+def bpolyfit(bpolytable, freq_range, antennas, flag_mask):
     """
     Calculate gain solutions from BPOLY table
 
     @param bpolytable string   : CARACal BPOLY table name
     @param freq_range ndarray  : Observation Frequency range [Hz]
+    @param antennas ndarray    : List of antenna names in array
+    @param flag_mask ndarray   : Boolean array of generally flagged channels
 
     @return bcal_sol ndarray : Bcal solution from poly fit
     """
@@ -340,25 +361,59 @@ def bpolyfit(bpolytable, freq_range):
         AmpCoeffY_ = polynomialAmplitude[index, nPolyAmp[index]:2*nPolyAmp[index]]
         PhaseCoeffY_ = polynomialPhase[index, nPolyPhase[index]:2*nPolyPhase[index]]
         # calculate CHEBYSHEV poly values
+        bl=fitting.chebyshev(int(nPolyAmp[index])-1,
+                             params=AmpCoeffX_,
+                             xmin=frequencyLimits[index,0],
+                             xmax=frequencyLimits[index,1])
+        amplitudeSolutionX = bl.f(freq_range)
         amplitudeSolutionX = np.real(scaleFactor_) \
-                           + calcChebyshev(AmpCoeffX_,
-                                           validDomain_,
-                                           freq_rangeHz_)
-        amplitudeSolutionX += 1 - np.mean(amplitudeSolutionX)
+                           * amplitudeSolutionX \
+                           + 1 - np.mean(amplitudeSolutionX[np.invert(flag_mask)])
+#         amplitudeSolutionX = np.real(scaleFactor_) \
+#                            + calcChebyshev(AmpCoeffX_,
+#                                            validDomain_,
+#                                            freq_rangeHz_)
+#         amplitudeSolutionX += 1 - np.mean(amplitudeSolutionX)
+        bl=fitting.chebyshev(int(nPolyAmp[index])-1,
+                             params=AmpCoeffY_,
+                             xmin=frequencyLimits[index,0],
+                             xmax=frequencyLimits[index,1])
+        amplitudeSolutionY = bl.f(freq_range)
         amplitudeSolutionY = np.real(scaleFactor_) \
-                           + calcChebyshev(AmpCoeffY_,
-                                           validDomain_,
-                                           freq_rangeHz_)
-        amplitudeSolutionY += 1 - np.mean(amplitudeSolutionY)
-        phaseSolutionX = calcChebyshev(PhaseCoeffX_,
-                                       validDomain_,
-                                       freq_rangeHz_)  # rad
-        phaseSolutionY = calcChebyshev(PhaseCoeffY_,
-                                       validDomain_,
-                                       freq_rangeHz_)  # rad
+                           * amplitudeSolutionY \
+                           + 1 - np.mean(amplitudeSolutionY[np.invert(flag_mask)])
+#         amplitudeSolutionY = np.real(scaleFactor_) \
+#                            + calcChebyshev(AmpCoeffY_,
+#                                            validDomain_,
+#                                            freq_rangeHz_)
+#         amplitudeSolutionY += 1 - np.mean(amplitudeSolutionY)
+        bl=fitting.chebyshev(int(nPolyPhase[index])-1,
+                             params=PhaseCoeffX_,
+                             xmin=frequencyLimits[index,0],
+                             xmax=frequencyLimits[index,1])
+        phaseSolutionX = bl.f(freq_range)
+        phaseSolutionX = np.real(scaleFactor_) \
+                       * phaseSolutionX \
+                       - np.mean(phaseSolutionX[np.invert(flag_mask)])  # rad
+#         phaseSolutionX = calcChebyshev(PhaseCoeffX_,
+#                                        validDomain_,
+#                                        freq_rangeHz_)  # rad
+        bl=fitting.chebyshev(int(nPolyPhase[index])-1,
+                             params=PhaseCoeffY_,
+                             xmin=frequencyLimits[index,0],
+                             xmax=frequencyLimits[index,1])
+        phaseSolutionY = bl.f(freq_range)
+        phaseSolutionY = np.real(scaleFactor_) \
+                       * phaseSolutionY \
+                       - np.mean(phaseSolutionY[np.invert(flag_mask)])  # rad
+#         phaseSolutionY = calcChebyshev(PhaseCoeffY_,
+#                                        validDomain_,
+#                                        freq_rangeHz_)  # rad
 
-        antBX = np.array(amplitudeSolutionX*(np.cos(phaseSolutionX) + 1j*np.sin(phaseSolutionX)), dtype=np.complex128)
-        antBY = np.array(amplitudeSolutionY*(np.cos(phaseSolutionY) + 1j*np.sin(phaseSolutionY)), dtype=np.complex128)
+        antBX = np.array(amplitudeSolutionX*(np.cos(phaseSolutionX) \
+              + 1j*np.sin(phaseSolutionX)), dtype=np.complex128)
+        antBY = np.array(amplitudeSolutionY*(np.cos(phaseSolutionY) + \
+              1j*np.sin(phaseSolutionY)), dtype=np.complex128)
         antB = np.column_stack([antBX.squeeze(), antBY.squeeze()])
         bcal_sol[index, :, :] = antB
     return bcal_sol
@@ -368,6 +423,8 @@ def map_main_tbl(
                  msfile,
                  bpolytable,
                  freq_range,
+                 antennas,
+                 flag_mask,
                  nrows=1,
                  ):
     """
@@ -375,7 +432,9 @@ def map_main_tbl(
 
     @param msfile string     : Reference CASA MS name
     @param bpolytable string : CASA BPOLY table name
-    @return freq_range Array : Observation Frequency range [Hz]
+    @param freq_range Array : Observation Frequency range [Hz]
+    @param antennas ndarray    : List of antenna names in array
+    @param flag_mask ndarray   : Boolean array of generally flagged channels
     @return nrows int        : [Optional] Nr of rows in Bcal table
 
     @return mail_tbl_dict dict : Bcal table main table 
@@ -406,7 +465,7 @@ def map_main_tbl(
         main_tbl_dict["SPECTRAL_WINDOW_ID"] = spw_id_varcol
 
     # 2 x nchans x nrows [complex] 
-    main_tbl_dict["CPARAM"] = bpolyfit(bpolytable, freq_range)
+    main_tbl_dict["CPARAM"] =  bpolyfit(bpolytable, freq_range, antennas, flag_mask)
 
     return main_tbl_dict
 
@@ -426,13 +485,17 @@ def Bpoly2B(bpolytable, template_btable):
      nrows,
      Xpol_idx,
      Ypol_idx,
-     freq_range] = metaref(bpolytable)
+     freq_range,
+     antennas,
+     flag_mask] = metaref(bpolytable)
 
     # mapping of main table
     main_tbl_dict = map_main_tbl(
                                  msfile,
                                  bpolytable,
                                  freq_range,
+                                 antennas,
+                                 flag_mask,
                                  nrows=nrows,
                                  )
 

@@ -11,6 +11,7 @@
 
 # CASA generated logs
 *.last
+casa
 
 # CARACAL generated logs and links
 .last_*

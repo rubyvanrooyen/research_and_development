@@ -48,4 +48,16 @@ listobs(vis=msfile, listfile=listfile)
 
 Put in a bash command and run through the files: `python get_listobs.py <msfile>`
 
+
+Batch script to grab all observational data
+```
+./getdata.sh
+```
+
+Make all raw data files read-only:
+```
+chmod -w <msfile>.ms
+```
+
+
 -fin-
